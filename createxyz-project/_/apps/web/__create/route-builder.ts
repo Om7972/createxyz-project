@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Hono } from 'hono';
 import type { Handler } from 'hono/types';
 import updatedFetch from '../src/__create/fetch';
@@ -82,7 +82,10 @@ async function registerRoutes() {
 
   for (const routeFile of routeFiles) {
     try {
-      const route = await import(/* @vite-ignore */ `${routeFile}?update=${Date.now()}`);
+      // Convert Windows backslash path to a file:// URL so Vite's module runner
+      // can resolve it correctly on Windows (backslash paths fail with ?update= cache busting)
+      const routeFileUrl = pathToFileURL(routeFile).href;
+      const route = await import(/* @vite-ignore */ `${routeFileUrl}?update=${Date.now()}`);
 
       const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
       for (const method of methods) {
@@ -94,7 +97,7 @@ async function registerRoutes() {
               const params = c.req.param();
               if (import.meta.env.DEV) {
                 const updatedRoute = await import(
-                  /* @vite-ignore */ `${routeFile}?update=${Date.now()}`
+                  /* @vite-ignore */ `${routeFileUrl}?update=${Date.now()}`
                 );
                 return await updatedRoute[method](c.req.raw, { params });
               }

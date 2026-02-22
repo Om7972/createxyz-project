@@ -1,24 +1,22 @@
 /**
  * Run this script to create all required database tables.
- * Usage: node scripts/migrate.js
+ * Uses Pool + WebSocket instead of neon() HTTP driver for better compatibility.
+ * Usage: node --env-file=.env scripts/migrate.js
  */
-import { neon } from '@neondatabase/serverless';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+neonConfig.webSocketConstructor = ws;
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
-    console.error('❌ DATABASE_URL is not set. Load your .env file first.');
-    process.exit(1);
+  console.error('❌ DATABASE_URL is not set. Make sure to run: node --env-file=.env scripts/migrate.js');
+  process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const pool = new Pool({ connectionString: DATABASE_URL });
 
 const schema = `
--- Auth tables (required by the auth system)
 CREATE TABLE IF NOT EXISTS auth_users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT,
@@ -58,7 +56,6 @@ CREATE TABLE IF NOT EXISTS auth_verification_token (
   PRIMARY KEY (identifier, token)
 );
 
--- App table: messages (used by /api/messages route)
 CREATE TABLE IF NOT EXISTS messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   content TEXT NOT NULL,
@@ -68,10 +65,15 @@ CREATE TABLE IF NOT EXISTS messages (
 `;
 
 try {
-    console.log('🔄 Running migration...');
-    await sql(schema);
-    console.log('✅ All tables created successfully!');
+  console.log('🔄 Connecting to database...');
+  const client = await pool.connect();
+  console.log('✅ Connected! Running migration...');
+  await client.query(schema);
+  client.release();
+  await pool.end();
+  console.log('✅ All tables created successfully!');
 } catch (err) {
-    console.error('❌ Migration failed:', err.message);
-    process.exit(1);
+  console.error('❌ Migration failed:', err.message);
+  if (err.cause) console.error('   Cause:', err.cause.message);
+  process.exit(1);
 }
